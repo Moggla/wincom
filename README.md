@@ -9,7 +9,7 @@
 Install-Module ps2exe
 ```
 
-### [winget-create](https://github.com/microsoft/winget-create)
+### [winget-create](https://github.com/microsoft/winget-create) (optional)
 ```powershell
 winget install wingetcreate
 ```
@@ -28,13 +28,13 @@ cd wincom
 ps2exe .\wincom.ps1 .\wincom.exe -version '0.0.1'
 ```
 
-## Update Windows Package Manager Manifest
+## Manually Update Windows Package Manager Manifest
 
 ```powershell
 wingetcreate update Moggla.wincom --urls 'https://github.com/Moggla/wincom/releases/download/v0.0.1/wincom.exe|x64' 'https://github.com/Moggla/wincom/releases/download/v0.0.1/wincom.exe|x86' --version '0.0.1'
 ```
 
-Test new manifest:
+Test manifest:
 ```powershell
 winget validate --manifest .\manifests\m\Moggla\wincom\0.0.1\
 winget install --manifest .\manifests\m\Moggla\wincom\0.0.1\
