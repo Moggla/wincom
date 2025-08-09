@@ -1,0 +1,36 @@
+name: Publish to WinGet
+
+on:
+  release:
+    types: [published]
+
+env:
+  WINGET_CREATE_GITHUB_TOKEN: ${{ secrets.WINGET_TOKEN }}
+
+jobs:
+  winget:
+    name: Publish winget package
+    runs-on: windows-latest
+
+    # Only submit stable releases
+    # if: ${{ !github.event.release.prerelease }}
+    steps:
+      - name: Download wingetcreate tool
+        run: |
+          curl.exe -JLO https://aka.ms/wingetcreate/latest
+
+      - name: Get release asset info
+        id: get_asset
+        run: |
+          $assets = '${{ toJSON(github.event.release.assets) }}' | ConvertFrom-Json
+          $x64InstallerUrl = $assets | Where-Object { $_.name -eq 'wincom.exe' } | Select-Object -First 1
+          $x86InstallerUrl = $assets | Where-Object { $_.name -eq 'wincom.exe' } | Select-Object -First 1
+          $version = (${{ toJSON(github.event.release.tag_name) }}).Trim('v')
+
+      - name: Submit to WinGet
+        run: |
+          .\wingetcreate.exe update Moggla.wincom `
+            --version $version `
+            --urls "$x64InstallerUrl|x64" `
+                   "$x86InstallerUrl|x86" `
+            --submit
