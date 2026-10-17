@@ -19,18 +19,19 @@ jobs:
         run: |
           curl.exe -JLO https://aka.ms/wingetcreate/latest
 
-      - name: Get release asset info
-        id: get_asset
-        run: |
-          $assets = '${{ toJSON(github.event.release.assets) }}' | ConvertFrom-Json
-          $x64InstallerUrl = $assets | Where-Object { $_.name -eq 'wincom.exe' } | Select-Object -First 1
-          $x86InstallerUrl = $assets | Where-Object { $_.name -eq 'wincom.exe' } | Select-Object -First 1
-          $version = (${{ toJSON(github.event.release.tag_name) }}).Trim('v')
-
+      # Every step runs in its own shell, so asset lookup and submission share one step.
+      # Event data is passed via env instead of ${{ }} interpolation to avoid quoting issues.
       - name: Submit to WinGet
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          ASSETS: ${{ toJSON(github.event.release.assets) }}
         run: |
+          $version = $env:TAG.TrimStart('v')
+          $asset = $env:ASSETS | ConvertFrom-Json | Where-Object { $_.name -eq 'wincom.exe' } | Select-Object -First 1
+          if (-not $asset) { throw "Release $env:TAG has no wincom.exe asset." }
+          $url = $asset.browser_download_url
+
           .\wingetcreate.exe update Moggla.wincom `
             --version $version `
-            --urls "$x64InstallerUrl|x64" `
-                   "$x86InstallerUrl|x86" `
+            --urls "$url|x64" "$url|x86" `
             --submit
