@@ -11,6 +11,8 @@ param (
     [string]$Parity = 'None',
     [int]$DataBits = 8,
     [string]$StopBits = 'One',
+    [ValidateSet('UTF8', 'ASCII', 'Latin1')]
+    [string]$Encoding = 'UTF8',
     [switch]$Dtr,
     [switch]$Rts,
     [switch]$Help,
@@ -41,6 +43,7 @@ Options:
   -Parity <string>       Parity [default: None]
   -DataBits <int>        Data bits [default: 8]
   -StopBits <string>     Stop bits [default: One]
+  -Encoding <string>     UTF8, ASCII or Latin1 [default: UTF8]
   -Dtr                   Enable DTR (needed by many USB CDC devices)
   -Rts                   Enable RTS
   -Version               Show version information
@@ -109,6 +112,11 @@ if (-not $Argument) {
 }
 
 $script:Interactive   = -not [Console]::IsInputRedirected
+$script:TextEncoding  = switch ($Encoding) {
+    'UTF8'   { [Text.UTF8Encoding]::new($false) }
+    'ASCII'  { [Text.Encoding]::ASCII }
+    'Latin1' { [Text.Encoding]::GetEncoding(28591) }
+}
 $script:ExitRequested = $false
 $script:AtLineStart   = $true
 $script:InputBuffer   = [System.Text.StringBuilder]::new()
@@ -223,7 +231,7 @@ function Wait-Interruptible([int]$Milliseconds) {
 function Connect-Port {
     while (-not $script:ExitRequested) {
         $sp = [System.IO.Ports.SerialPort]::new($Argument, $BaudRate, $Parity, $DataBits, $StopBits)
-        $sp.Encoding  = [Text.Encoding]::ASCII
+        $sp.Encoding  = $script:TextEncoding
         $sp.NewLine   = "`n"
         $sp.ReadTimeout = 200
         $sp.DtrEnable = $Dtr
