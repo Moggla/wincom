@@ -11,25 +11,38 @@ jobs:
   winget:
     name: Publish winget package
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     # Only submit stable releases
     # if: ${{ !github.event.release.prerelease }}
+    env:
+      TAG: ${{ github.event.release.tag_name }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # PS2EXE compiles for Windows PowerShell, so build with powershell instead of pwsh.
+      - name: Build wincom.exe
+        shell: powershell
+        run: |
+          Install-Module ps2exe -Scope CurrentUser -Force
+          .\build.ps1 -Version $env:TAG
+
+      - name: Upload wincom.exe to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload $env:TAG wincom.exe --clobber
+
       - name: Download wingetcreate tool
         run: |
           curl.exe -JLO https://aka.ms/wingetcreate/latest
 
-      # Every step runs in its own shell, so asset lookup and submission share one step.
-      # Event data is passed via env instead of ${{ }} interpolation to avoid quoting issues.
       - name: Submit to WinGet
-        env:
-          TAG: ${{ github.event.release.tag_name }}
-          ASSETS: ${{ toJSON(github.event.release.assets) }}
         run: |
           $version = $env:TAG.TrimStart('v')
-          $asset = $env:ASSETS | ConvertFrom-Json | Where-Object { $_.name -eq 'wincom.exe' } | Select-Object -First 1
-          if (-not $asset) { throw "Release $env:TAG has no wincom.exe asset." }
-          $url = $asset.browser_download_url
+          $url = "https://github.com/${{ github.repository }}/releases/download/$env:TAG/wincom.exe"
 
           .\wingetcreate.exe update Moggla.wincom `
             --version $version `
