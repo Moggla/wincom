@@ -7,6 +7,7 @@ param (
     [switch]$Timestamp,
     [string]$LogFile,
     [switch]$Hex,
+    [switch]$NoColor,
     [switch]$NoExit,
     [switch]$AutoConnect,
     [ValidateRange(1, [int]::MaxValue)]
@@ -55,6 +56,7 @@ Options:
   -Timestamp             Show a timestamp in front of each line
   -LogFile <path>        Append the session output to a file
   -Hex                   Show received bytes as hex, send input as hex bytes (e.g. 48 65 6C)
+  -NoColor               Disable colors (also set by the NO_COLOR environment variable)
   -NoExit                Do not quit on Ctrl+C (sent to the device in write mode)
   -AutoConnect           Automatically connect to serial port
   -ConnectRate <int>     AutoConnect rate in milliseconds [default: 2000]
@@ -162,9 +164,11 @@ $script:PromptShown   = $false
 $script:History       = [System.Collections.Generic.List[string]]::new()
 $script:HistoryIndex  = 0
 $script:Log           = $null
+$script:UseColor      = -not $NoColor -and -not $env:NO_COLOR
 
-function Write-Out([string]$Text) {
-    Write-Host $Text -NoNewline
+function Write-Out([string]$Text, $Color) {
+    if ($Color -and $script:UseColor) { Write-Host $Text -NoNewline -ForegroundColor $Color }
+    else                              { Write-Host $Text -NoNewline }
     if ($script:Log) { $script:Log.Write($Text) }
 }
 
@@ -189,13 +193,14 @@ function Show-Prompt {
     $text = $script:InputBuffer.ToString()
     $max = (Get-ConsoleWidth) - 1 - $prefix.Length
     if ($text.Length -gt $max) { $text = "..." + $text.Substring($text.Length - $max + 3) }
-    Write-Host ($prefix + $text) -NoNewline
+    if ($script:UseColor) { Write-Host ($prefix + $text) -NoNewline -ForegroundColor Cyan }
+    else                  { Write-Host ($prefix + $text) -NoNewline }
     $script:PromptShown = $true
 }
 
 function Write-LinePrefix([string]$Direction) {
-    if ($Timestamp) { Write-Out "[$([DateTime]::Now.ToString('HH:mm:ss.fff'))] " }
-    if ($ShowDirection) { Write-Out "$Direction " }
+    if ($Timestamp) { Write-Out "[$([DateTime]::Now.ToString('HH:mm:ss.fff'))] " DarkGray }
+    if ($ShowDirection) { Write-Out "$Direction " DarkGray }
 }
 
 function Write-Rx([string]$data) {
@@ -240,7 +245,7 @@ function Write-Tx([string]$text) {
     Hide-Prompt
     if (-not $script:AtLineStart) { Write-Out "`n" }
     Write-LinePrefix ">>"
-    Write-Out "$text`n"
+    Write-Out "$text`n" Cyan
     $script:AtLineStart = $true
     Show-Prompt
 }
@@ -336,7 +341,7 @@ function Write-Status([string]$Message, [switch]$Warning) {
         Write-Warning $Message
         if ($script:Log) { $script:Log.WriteLine("WARNING: $Message") }
     } else {
-        Write-Out "$Message`n"
+        Write-Out "$Message`n" DarkGray
     }
     Show-Prompt
 }
