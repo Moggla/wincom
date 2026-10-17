@@ -25,7 +25,7 @@ cd wincom
 ## Compile as Executable
 
 ```powershell
-ps2exe .\wincom.ps1 .\wincom.exe -version '0.0.1'
+.\build.ps1 -Version 0.0.1
 ```
 
 ## Manually Update Windows Package Manager Manifest
