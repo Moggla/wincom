@@ -3,6 +3,7 @@ param (
     [string]$Argument = "",
     [switch]$WriteMode,
     [switch]$ShowDirection,
+    [switch]$Timestamp,
     [switch]$NoExit,
     [switch]$AutoConnect,
     [ValidateRange(1, [int]::MaxValue)]
@@ -46,6 +47,7 @@ Arguments:
 Options:
   -WriteMode             Enable read & write mode
   -ShowDirection         Show << / >> for RX / TX
+  -Timestamp             Show a timestamp in front of each line
   -NoExit                Do not quit on Ctrl+C (sent to the device in write mode)
   -AutoConnect           Automatically connect to serial port
   -ConnectRate <int>     AutoConnect rate in milliseconds [default: 2000]
@@ -168,6 +170,7 @@ function Show-Prompt {
 }
 
 function Write-LinePrefix([string]$Direction) {
+    if ($Timestamp) { Write-Host "[$([DateTime]::Now.ToString('HH:mm:ss.fff'))] " -NoNewline }
     if ($ShowDirection) { Write-Host "$Direction " -NoNewline }
 }
 
