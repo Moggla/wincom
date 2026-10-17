@@ -4,6 +4,7 @@ param (
     [string]$Match,
     [switch]$WriteMode,
     [switch]$NoEcho,
+    [string]$SendFile,
     [switch]$ShowDirection,
     [switch]$Timestamp,
     [string]$LogFile,
@@ -54,6 +55,7 @@ Options:
                          matches, e.g. CP210 or 303A:1001 (also filters list)
   -WriteMode             Enable read & write mode
   -NoEcho                Do not print sent input (for devices that echo it back)
+  -SendFile <path>       Send the file's raw bytes once after the port is opened
   -ShowDirection         Show << / >> for RX / TX
   -Timestamp             Show a timestamp in front of each line
   -LogFile <path>        Append the session output to a file
@@ -166,6 +168,8 @@ $script:PromptShown   = $false
 $script:History       = [System.Collections.Generic.List[string]]::new()
 $script:HistoryIndex  = 0
 $script:Log           = $null
+$script:FileData      = $null
+$script:FileSent      = $false
 $script:UseColor      = -not $NoColor -and -not $env:NO_COLOR
 
 function Write-Out([string]$Text, $Color) {
@@ -349,6 +353,32 @@ function Write-Status([string]$Message, [switch]$Warning) {
     Show-Prompt
 }
 
+function Read-Port($sp) {
+    if ($sp.BytesToRead -eq 0) { return }
+    if ($Hex) {
+        $buffer = New-Object byte[] $sp.BytesToRead
+        $count = $sp.Read($buffer, 0, $buffer.Length)
+        if ($count -gt 0) { Write-RxHex $buffer[0..($count - 1)] }
+    } else {
+        $data = $sp.ReadExisting()
+        if ($data) { Write-Rx $data }
+    }
+}
+
+function Send-File($sp) {
+    # Sent in chunks so received data is still shown and Ctrl+Q can abort.
+    $data = $script:FileData
+    $offset = 0
+    while ($offset -lt $data.Length -and -not $script:ExitRequested) {
+        $count = [Math]::Min(1024, $data.Length - $offset)
+        $sp.Write($data, $offset, $count)
+        $offset += $count
+        Read-Port $sp
+        Read-Keys $null
+    }
+    Write-Status "Sent $offset of $($data.Length) bytes from $SendFile"
+}
+
 function Connect-Port {
     $waiting = $false
     while (-not $script:ExitRequested) {
@@ -399,18 +429,12 @@ function Connect-Port {
         Write-Status "$info`n"
 
         try {
+            if ($script:FileData -and -not $script:FileSent) {
+                Send-File $sp
+                $script:FileSent = $true
+            }
             while (-not $script:ExitRequested) {
-                if ($sp.BytesToRead -gt 0) {
-                    if ($Hex) {
-                        $buffer = New-Object byte[] $sp.BytesToRead
-                        $count = $sp.Read($buffer, 0, $buffer.Length)
-                        if ($count -gt 0) { Write-RxHex $buffer[0..($count - 1)] }
-                    } else {
-                        $data = $sp.ReadExisting()
-                        if ($data) { Write-Rx $data }
-                    }
-                }
-
+                Read-Port $sp
                 Read-Keys $sp
                 Start-Sleep -Milliseconds $RefreshRate
             }
@@ -440,6 +464,10 @@ try {
         $logPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogFile)
         $script:Log = [System.IO.StreamWriter]::new($logPath, $true, [Text.UTF8Encoding]::new($false))
         $script:Log.AutoFlush = $true
+    }
+    if ($SendFile) {
+        $filePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SendFile)
+        $script:FileData = [System.IO.File]::ReadAllBytes($filePath)
     }
     Connect-Port
 }
