@@ -3,6 +3,7 @@ param (
     [string]$Argument = "",
     [string]$Match,
     [switch]$WriteMode,
+    [switch]$NoEcho,
     [switch]$ShowDirection,
     [switch]$Timestamp,
     [string]$LogFile,
@@ -52,6 +53,7 @@ Options:
   -Match <regex>         Use the first port whose name, description or VID:PID
                          matches, e.g. CP210 or 303A:1001 (also filters list)
   -WriteMode             Enable read & write mode
+  -NoEcho                Do not print sent input (for devices that echo it back)
   -ShowDirection         Show << / >> for RX / TX
   -Timestamp             Show a timestamp in front of each line
   -LogFile <path>        Append the session output to a file
@@ -242,6 +244,7 @@ function Write-RxHex([byte[]]$Bytes) {
 }
 
 function Write-Tx([string]$text) {
+    if ($NoEcho) { return }
     Hide-Prompt
     if (-not $script:AtLineStart) { Write-Out "`n" }
     Write-LinePrefix ">>"
