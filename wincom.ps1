@@ -256,6 +256,17 @@ function Get-ErrorMessage($ErrorRecord) {
     $exception.Message
 }
 
+function Write-Status([string]$Message, [switch]$Warning) {
+    Hide-Prompt
+    if (-not $script:AtLineStart) {
+        Write-Host ""
+        $script:AtLineStart = $true
+    }
+    if ($Warning) { Write-Warning $Message }
+    else          { Write-Host $Message }
+    Show-Prompt
+}
+
 function Connect-Port {
     $waiting = $false
     while (-not $script:ExitRequested) {
@@ -267,20 +278,31 @@ function Connect-Port {
 
         try {
             $sp.Open()
-            $waiting = $false
-            Write-Host "Opened $Argument @ $BaudRate baud. " -NoNewline
-            if ($WriteMode) { Write-Host "Type and Enter to send. " -NoNewline }
-            else            { Write-Host "Read-only. " -NoNewline }
-            if ($NoExit -and $WriteMode) { Write-Host "Ctrl+C is sent to the device. " -NoNewline }
-            if ($script:Interactive) { Write-Host "Ctrl+Q to quit.`n" }
-            else                     { Write-Host "`n" }
+        }
+        catch {
+            $sp.Dispose()
+            if (-not $AutoConnect) {
+                Write-Status (Get-ErrorMessage $_) -Warning
+                return
+            }
+            if (-not $waiting) {
+                Write-Status "Waiting for $Argument ($(Get-ErrorMessage $_))"
+                $waiting = $true
+            }
+            Wait-Interruptible $ConnectRate
+            continue
+        }
 
+        $waiting = $false
+        $info = "Opened $Argument @ $BaudRate baud."
+        if ($WriteMode) { $info += " Type and Enter to send." }
+        else            { $info += " Read-only." }
+        if ($NoExit -and $WriteMode) { $info += " Ctrl+C is sent to the device." }
+        if ($script:Interactive)     { $info += " Ctrl+Q to quit." }
+        Write-Status "$info`n"
+
+        try {
             while (-not $script:ExitRequested) {
-                if (-not $sp.IsOpen) {
-                    Write-Warning "Serial port disconnected."
-                    break
-                }
-
                 if ($sp.BytesToRead -gt 0) {
                     $data = $sp.ReadExisting()
                     if ($data) { Write-Rx $data }
@@ -291,32 +313,17 @@ function Connect-Port {
             }
         }
         catch {
-            if ($AutoConnect) {
-                if (-not $waiting) {
-                    Hide-Prompt
-                    Write-Host "Waiting for $Argument ($(Get-ErrorMessage $_))"
-                    $waiting = $true
-                }
-                Wait-Interruptible $ConnectRate
-                continue
-            } else {
-                Hide-Prompt
-                Write-Warning (Get-ErrorMessage $_)
-                break
-            }
+            # Unplugging a USB adapter does not clear IsOpen, it makes reads and writes throw.
+            Write-Status "Serial port disconnected ($(Get-ErrorMessage $_))" -Warning
         }
         finally {
-            if ($sp.IsOpen) {
-                $sp.Close()
-                Hide-Prompt
-                Write-Host "`nClosed $Argument"
-            }
+            try { $sp.Close() } catch { }
+            $sp.Dispose()
         }
-        if ($AutoConnect) {
-            Wait-Interruptible $ConnectRate
-            continue
-        }
-        break
+        Write-Status "Closed $Argument"
+
+        # With -AutoConnect the next iteration waits until the port is back.
+        if (-not $AutoConnect) { return }
     }
 }
 
