@@ -11,6 +11,8 @@ param (
     [string]$Parity = 'None',
     [int]$DataBits = 8,
     [string]$StopBits = 'One',
+    [ValidateSet('LF', 'CR', 'CRLF', 'None')]
+    [string]$LineEnding = 'LF',
     [ValidateSet('UTF8', 'ASCII', 'Latin1')]
     [string]$Encoding = 'UTF8',
     [switch]$Dtr,
@@ -43,6 +45,7 @@ Options:
   -Parity <string>       Parity [default: None]
   -DataBits <int>        Data bits [default: 8]
   -StopBits <string>     Stop bits [default: One]
+  -LineEnding <string>   LF, CR, CRLF or None appended when sending [default: LF]
   -Encoding <string>     UTF8, ASCII or Latin1 [default: UTF8]
   -Dtr                   Enable DTR (needed by many USB CDC devices)
   -Rts                   Enable RTS
@@ -112,6 +115,7 @@ if (-not $Argument) {
 }
 
 $script:Interactive   = -not [Console]::IsInputRedirected
+$script:Terminator    = @{ LF = "`n"; CR = "`r"; CRLF = "`r`n"; None = "" }[$LineEnding]
 $script:TextEncoding  = switch ($Encoding) {
     'UTF8'   { [Text.UTF8Encoding]::new($false) }
     'ASCII'  { [Text.Encoding]::ASCII }
@@ -170,11 +174,9 @@ function Submit-Input($sp) {
     $msg = $script:InputBuffer.ToString()
     [void]$script:InputBuffer.Clear()
     Hide-Prompt
-    if ($msg.Trim() -ne "") {
-        $sp.WriteLine($msg.Trim())
-        $script:History.Add($msg)
-        Write-Tx $msg.Trim()
-    }
+    $sp.Write($msg + $script:Terminator)
+    if ($msg -and ($script:History.Count -eq 0 -or $script:History[-1] -ne $msg)) { $script:History.Add($msg) }
+    Write-Tx $msg
     $script:HistoryIndex = $script:History.Count
 }
 
@@ -232,7 +234,6 @@ function Connect-Port {
     while (-not $script:ExitRequested) {
         $sp = [System.IO.Ports.SerialPort]::new($Argument, $BaudRate, $Parity, $DataBits, $StopBits)
         $sp.Encoding  = $script:TextEncoding
-        $sp.NewLine   = "`n"
         $sp.ReadTimeout = 200
         $sp.DtrEnable = $Dtr
         $sp.RtsEnable = $Rts
