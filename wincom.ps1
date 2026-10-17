@@ -5,11 +5,17 @@ param (
     [switch]$ShowDirection,
     [switch]$NoExit,
     [switch]$AutoConnect,
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$ConnectRate = 2000,
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$RefreshRate = 20,
+    [ValidateRange(1, [int]::MaxValue)]
     [int]$BaudRate = 115200,
+    [ValidateSet('None', 'Odd', 'Even', 'Mark', 'Space')]
     [string]$Parity = 'None',
+    [ValidateRange(5, 8)]
     [int]$DataBits = 8,
+    [ValidateSet('One', 'OnePointFive', 'Two')]
     [string]$StopBits = 'One',
     [ValidateSet('LF', 'CR', 'CRLF', 'None')]
     [string]$LineEnding = 'LF',
@@ -42,9 +48,9 @@ Options:
   -ConnectRate <int>     AutoConnect rate in milliseconds [default: 2000]
   -RefreshRate <int>     Refresh rate in milliseconds [default: 20]
   -BaudRate <int>        Baud rate [default: 115200]
-  -Parity <string>       Parity [default: None]
-  -DataBits <int>        Data bits [default: 8]
-  -StopBits <string>     Stop bits [default: One]
+  -Parity <string>       None, Odd, Even, Mark or Space [default: None]
+  -DataBits <int>        5 to 8 [default: 8]
+  -StopBits <string>     One, OnePointFive or Two [default: One]
   -LineEnding <string>   LF, CR, CRLF or None appended when sending [default: LF]
   -Encoding <string>     UTF8, ASCII or Latin1 [default: UTF8]
   -Dtr                   Enable DTR (needed by many USB CDC devices)
@@ -104,6 +110,11 @@ if ($Argument -eq "list") {
     $ports | Format-Table -AutoSize
     return
 }
+if ($Argument -and $Argument -notmatch '^COM\d+$') {
+    Write-Warning "Invalid argument: $Argument"
+    Show-Help; return
+}
+$Argument = $Argument.ToUpper()
 if (-not $Argument) {
     $Argument = Get-SerialPorts | Select-Object -First 1 -ExpandProperty Port
     if (-not $Argument) {
