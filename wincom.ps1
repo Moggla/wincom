@@ -27,6 +27,9 @@ param (
     [switch]$Version
 )
 
+# Replaced by build.ps1 when compiling a release.
+$WincomVersion = 'dev'
+
 function Show-Help {
     @"
 
@@ -68,7 +71,7 @@ Keys:
 }
 
 function Show-Version {
-    Write-Host "wincom version 0.0.1"
+    Write-Host "wincom version $WincomVersion"
 }
 
 if ($Help) {
