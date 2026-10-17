@@ -153,18 +153,26 @@ function Show-Prompt {
     $script:PromptShown = $true
 }
 
+function Write-LinePrefix([string]$Direction) {
+    if ($ShowDirection) { Write-Host "$Direction " -NoNewline }
+}
+
 function Write-Rx([string]$data) {
     Hide-Prompt
-    if ($ShowDirection) { $data = "<< $data" }
-    Write-Host $data -NoNewline
-    $script:AtLineStart = $data.EndsWith("`n")
+    # Data arrives in arbitrary chunks, so the prefix goes in front of each line.
+    foreach ($part in $data -split '(?<=\n)') {
+        if (-not $part) { continue }
+        if ($script:AtLineStart) { Write-LinePrefix "<<" }
+        Write-Host $part -NoNewline
+        $script:AtLineStart = $part.EndsWith("`n")
+    }
     Show-Prompt
 }
 
 function Write-Tx([string]$text) {
     Hide-Prompt
     if (-not $script:AtLineStart) { Write-Host "" }
-    if ($ShowDirection) { $text = ">> $text" }
+    Write-LinePrefix ">>"
     Write-Host $text
     $script:AtLineStart = $true
     Show-Prompt
