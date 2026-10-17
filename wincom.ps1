@@ -55,18 +55,41 @@ if ($Help) {
 if ($Version) {
     Show-Version; return
 }
+function Get-SerialPorts {
+    # Win32_SerialPort misses many USB CDC devices, so enumerate the port names
+    # and look up descriptions from the PnP devices.
+    $devices = @(Get-CimInstance Win32_PnPEntity -Filter "Name LIKE '%(COM%'" -ErrorAction SilentlyContinue)
+    $names = [System.IO.Ports.SerialPort]::GetPortNames() |
+      ForEach-Object { $_ -replace '[^\w]', '' } |
+      Where-Object { $_ -match '^COM\d+$' } |
+      Sort-Object -Unique |
+      Sort-Object { [int]($_ -replace '\D', '') }
+
+    foreach ($name in $names) {
+        $device = $devices | Where-Object { $_.Name -match "\($name\)" } | Select-Object -First 1
+        $vidPid = ''
+        if ($device.PNPDeviceID -match 'VID_([0-9A-F]{4}).*PID_([0-9A-F]{4})') {
+            $vidPid = "$($Matches[1]):$($Matches[2])"
+        }
+        [PSCustomObject]@{
+            Port        = $name
+            Description = if ($device) { $device.Name -replace '\s*\(COM\d+\)$', '' } else { '' }
+            'VID:PID'   = $vidPid
+        }
+    }
+}
+
 if ($Argument -eq "list") {
-    if (-not (Get-CimInstance Win32_SerialPort)) {
+    $ports = @(Get-SerialPorts)
+    if (-not $ports) {
         Write-Warning "No COM ports found."
         return
     }
-    Get-CimInstance Win32_SerialPort |
-      Select-Object DeviceID, Description |
-      Format-Table -AutoSize
+    $ports | Format-Table -AutoSize
     return
 }
 if (-not $Argument) {
-    $Argument = (Get-CimInstance Win32_SerialPort | Select-Object -First 1 -ExpandProperty DeviceID)
+    $Argument = Get-SerialPorts | Select-Object -First 1 -ExpandProperty Port
     if (-not $Argument) {
         Write-Warning "Missing or invalid argument."
         Show-Help; return
