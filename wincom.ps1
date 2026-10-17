@@ -11,6 +11,8 @@ param (
     [string]$Parity = 'None',
     [int]$DataBits = 8,
     [string]$StopBits = 'One',
+    [switch]$Dtr,
+    [switch]$Rts,
     [switch]$Help,
     [switch]$Version
 )
@@ -39,6 +41,8 @@ Options:
   -Parity <string>       Parity [default: None]
   -DataBits <int>        Data bits [default: 8]
   -StopBits <string>     Stop bits [default: One]
+  -Dtr                   Enable DTR (needed by many USB CDC devices)
+  -Rts                   Enable RTS
   -Version               Show version information
   -Help                  Show help and usage information
 
@@ -222,6 +226,8 @@ function Connect-Port {
         $sp.Encoding  = [Text.Encoding]::ASCII
         $sp.NewLine   = "`n"
         $sp.ReadTimeout = 200
+        $sp.DtrEnable = $Dtr
+        $sp.RtsEnable = $Rts
 
         try {
             $sp.Open()
