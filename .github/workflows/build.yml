@@ -1,0 +1,38 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build wincom.exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # PS2EXE compiles for Windows PowerShell, so build with powershell instead of pwsh.
+      - name: Build wincom.exe
+        shell: powershell
+        run: |
+          Install-Module ps2exe -Scope CurrentUser -Force
+          .\build.ps1 -Version 0.0.${{ github.run_number }}
+
+      - name: Smoke test
+        shell: powershell
+        run: |
+          $version = .\wincom.exe -Version | Out-String
+          Write-Host $version
+          if ($version -notmatch '0\.0\.${{ github.run_number }}') { throw "Unexpected version output" }
+          .\wincom.exe -Help
+          .\wincom.exe list
+
+      - name: Upload wincom.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: wincom
+          path: wincom.exe
