@@ -4,6 +4,7 @@ param (
     [switch]$WriteMode,
     [switch]$ShowDirection,
     [switch]$Timestamp,
+    [string]$LogFile,
     [switch]$NoExit,
     [switch]$AutoConnect,
     [ValidateRange(1, [int]::MaxValue)]
@@ -48,6 +49,7 @@ Options:
   -WriteMode             Enable read & write mode
   -ShowDirection         Show << / >> for RX / TX
   -Timestamp             Show a timestamp in front of each line
+  -LogFile <path>        Append the session output to a file
   -NoExit                Do not quit on Ctrl+C (sent to the device in write mode)
   -AutoConnect           Automatically connect to serial port
   -ConnectRate <int>     AutoConnect rate in milliseconds [default: 2000]
@@ -143,6 +145,12 @@ $script:InputBuffer   = [System.Text.StringBuilder]::new()
 $script:PromptShown   = $false
 $script:History       = [System.Collections.Generic.List[string]]::new()
 $script:HistoryIndex  = 0
+$script:Log           = $null
+
+function Write-Out([string]$Text) {
+    Write-Host $Text -NoNewline
+    if ($script:Log) { $script:Log.Write($Text) }
+}
 
 function Get-ConsoleWidth {
     try { [Console]::BufferWidth } catch { 80 }
@@ -170,8 +178,8 @@ function Show-Prompt {
 }
 
 function Write-LinePrefix([string]$Direction) {
-    if ($Timestamp) { Write-Host "[$([DateTime]::Now.ToString('HH:mm:ss.fff'))] " -NoNewline }
-    if ($ShowDirection) { Write-Host "$Direction " -NoNewline }
+    if ($Timestamp) { Write-Out "[$([DateTime]::Now.ToString('HH:mm:ss.fff'))] " }
+    if ($ShowDirection) { Write-Out "$Direction " }
 }
 
 function Write-Rx([string]$data) {
@@ -180,7 +188,7 @@ function Write-Rx([string]$data) {
     foreach ($part in $data -split '(?<=\n)') {
         if (-not $part) { continue }
         if ($script:AtLineStart) { Write-LinePrefix "<<" }
-        Write-Host $part -NoNewline
+        Write-Out $part
         $script:AtLineStart = $part.EndsWith("`n")
     }
     Show-Prompt
@@ -188,9 +196,9 @@ function Write-Rx([string]$data) {
 
 function Write-Tx([string]$text) {
     Hide-Prompt
-    if (-not $script:AtLineStart) { Write-Host "" }
+    if (-not $script:AtLineStart) { Write-Out "`n" }
     Write-LinePrefix ">>"
-    Write-Host $text
+    Write-Out "$text`n"
     $script:AtLineStart = $true
     Show-Prompt
 }
@@ -265,11 +273,15 @@ function Get-ErrorMessage($ErrorRecord) {
 function Write-Status([string]$Message, [switch]$Warning) {
     Hide-Prompt
     if (-not $script:AtLineStart) {
-        Write-Host ""
+        Write-Out "`n"
         $script:AtLineStart = $true
     }
-    if ($Warning) { Write-Warning $Message }
-    else          { Write-Host $Message }
+    if ($Warning) {
+        Write-Warning $Message
+        if ($script:Log) { $script:Log.WriteLine("WARNING: $Message") }
+    } else {
+        Write-Out "$Message`n"
+    }
     Show-Prompt
 }
 
@@ -339,8 +351,17 @@ if ($script:Interactive) {
     [Console]::TreatControlCAsInput = $true
 }
 try {
+    if ($LogFile) {
+        $logPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogFile)
+        $script:Log = [System.IO.StreamWriter]::new($logPath, $true, [Text.UTF8Encoding]::new($false))
+        $script:Log.AutoFlush = $true
+    }
     Connect-Port
 }
+catch {
+    Write-Warning (Get-ErrorMessage $_)
+}
 finally {
+    if ($script:Log) { $script:Log.Dispose() }
     if ($script:Interactive) { [Console]::TreatControlCAsInput = $treatControlCAsInput }
 }
