@@ -1,6 +1,7 @@
 param (
     [Parameter(Position = 0)]
     [string]$Argument = "",
+    [string]$Match,
     [switch]$WriteMode,
     [switch]$ShowDirection,
     [switch]$Timestamp,
@@ -47,6 +48,8 @@ Arguments:
   list                   Show available serial ports
 
 Options:
+  -Match <regex>         Use the first port whose name, description or VID:PID
+                         matches, e.g. CP210 or 303A:1001 (also filters list)
   -WriteMode             Enable read & write mode
   -ShowDirection         Show << / >> for RX / TX
   -Timestamp             Show a timestamp in front of each line
@@ -110,8 +113,15 @@ function Get-SerialPorts {
     }
 }
 
+function Find-SerialPorts([string]$Pattern) {
+    Get-SerialPorts | Where-Object {
+        $_.Port -match $Pattern -or $_.Description -match $Pattern -or $_.'VID:PID' -match $Pattern
+    }
+}
+
 if ($Argument -eq "list") {
-    $ports = @(Get-SerialPorts)
+    if ($Match) { $ports = @(Find-SerialPorts $Match) }
+    else        { $ports = @(Get-SerialPorts) }
     if (-not $ports) {
         Write-Warning "No COM ports found."
         return
@@ -123,8 +133,12 @@ if ($Argument -and $Argument -notmatch '^COM\d+$') {
     Write-Warning "Invalid argument: $Argument"
     Show-Help; return
 }
+if ($Argument -and $Match) {
+    Write-Warning "Use either a port or -Match, not both."
+    return
+}
 $Argument = $Argument.ToUpper()
-if (-not $Argument) {
+if (-not $Argument -and -not $Match) {
     $Argument = Get-SerialPorts | Select-Object -First 1 -ExpandProperty Port
     if (-not $Argument) {
         Write-Warning "Missing or invalid argument."
@@ -330,23 +344,38 @@ function Write-Status([string]$Message, [switch]$Warning) {
 function Connect-Port {
     $waiting = $false
     while (-not $script:ExitRequested) {
-        $sp = [System.IO.Ports.SerialPort]::new($Argument, $BaudRate, $Parity, $DataBits, $StopBits)
-        $sp.Encoding  = $script:TextEncoding
-        $sp.ReadTimeout = 200
-        $sp.DtrEnable = $Dtr
-        $sp.RtsEnable = $Rts
-
-        try {
-            $sp.Open()
+        $portName = $Argument
+        $target = $Argument
+        $failure = $null
+        if ($Match) {
+            # Resolved on every attempt, the COM number can change after replugging.
+            $portName = Find-SerialPorts $Match | Select-Object -First 1 -ExpandProperty Port
+            $target = "a port matching '$Match'"
+            if (-not $portName) { $failure = "No port matching '$Match' found" }
         }
-        catch {
-            $sp.Dispose()
+        if ($portName) {
+            $sp = [System.IO.Ports.SerialPort]::new($portName, $BaudRate, $Parity, $DataBits, $StopBits)
+            $sp.Encoding  = $script:TextEncoding
+            $sp.ReadTimeout = 200
+            $sp.DtrEnable = $Dtr
+            $sp.RtsEnable = $Rts
+            try {
+                $sp.Open()
+            }
+            catch {
+                $sp.Dispose()
+                $failure = Get-ErrorMessage $_
+            }
+        }
+
+        if ($failure) {
             if (-not $AutoConnect) {
-                Write-Status (Get-ErrorMessage $_) -Warning
+                Write-Status $failure -Warning
                 return
             }
             if (-not $waiting) {
-                Write-Status "Waiting for $Argument ($(Get-ErrorMessage $_))"
+                if ($portName) { Write-Status "Waiting for $target ($failure)" }
+                else           { Write-Status "Waiting for $target" }
                 $waiting = $true
             }
             Wait-Interruptible $ConnectRate
@@ -354,7 +383,7 @@ function Connect-Port {
         }
 
         $waiting = $false
-        $info = "Opened $Argument @ $BaudRate baud."
+        $info = "Opened $portName @ $BaudRate baud."
         if ($WriteMode) { $info += " Type and Enter to send." }
         else            { $info += " Read-only." }
         if ($NoExit -and $WriteMode) { $info += " Ctrl+C is sent to the device." }
@@ -386,7 +415,7 @@ function Connect-Port {
             try { $sp.Close() } catch { }
             $sp.Dispose()
         }
-        Write-Status "Closed $Argument"
+        Write-Status "Closed $portName"
 
         # With -AutoConnect the next iteration waits until the port is back.
         if (-not $AutoConnect) { return }
