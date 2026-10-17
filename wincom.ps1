@@ -249,7 +249,15 @@ function Wait-Interruptible([int]$Milliseconds) {
     }
 }
 
+function Get-ErrorMessage($ErrorRecord) {
+    # Unwrap 'Exception calling "Open" with "0" argument(s)' to the actual reason.
+    $exception = $ErrorRecord.Exception
+    while ($exception.InnerException) { $exception = $exception.InnerException }
+    $exception.Message
+}
+
 function Connect-Port {
+    $waiting = $false
     while (-not $script:ExitRequested) {
         $sp = [System.IO.Ports.SerialPort]::new($Argument, $BaudRate, $Parity, $DataBits, $StopBits)
         $sp.Encoding  = $script:TextEncoding
@@ -259,6 +267,7 @@ function Connect-Port {
 
         try {
             $sp.Open()
+            $waiting = $false
             Write-Host "Opened $Argument @ $BaudRate baud. " -NoNewline
             if ($WriteMode) { Write-Host "Type and Enter to send. " -NoNewline }
             else            { Write-Host "Read-only. " -NoNewline }
@@ -283,11 +292,16 @@ function Connect-Port {
         }
         catch {
             if ($AutoConnect) {
+                if (-not $waiting) {
+                    Hide-Prompt
+                    Write-Host "Waiting for $Argument ($(Get-ErrorMessage $_))"
+                    $waiting = $true
+                }
                 Wait-Interruptible $ConnectRate
                 continue
             } else {
                 Hide-Prompt
-                Write-Warning "$_"
+                Write-Warning (Get-ErrorMessage $_)
                 break
             }
         }
