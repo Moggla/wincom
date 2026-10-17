@@ -5,6 +5,7 @@ param (
     [switch]$ShowDirection,
     [switch]$Timestamp,
     [string]$LogFile,
+    [switch]$Hex,
     [switch]$NoExit,
     [switch]$AutoConnect,
     [ValidateRange(1, [int]::MaxValue)]
@@ -50,6 +51,7 @@ Options:
   -ShowDirection         Show << / >> for RX / TX
   -Timestamp             Show a timestamp in front of each line
   -LogFile <path>        Append the session output to a file
+  -Hex                   Show received bytes as hex, send input as hex bytes (e.g. 48 65 6C)
   -NoExit                Do not quit on Ctrl+C (sent to the device in write mode)
   -AutoConnect           Automatically connect to serial port
   -ConnectRate <int>     AutoConnect rate in milliseconds [default: 2000]
@@ -194,6 +196,32 @@ function Write-Rx([string]$data) {
     Show-Prompt
 }
 
+function ConvertTo-HexString([byte[]]$Bytes) {
+    ($Bytes | ForEach-Object { $_.ToString('X2') }) -join ' '
+}
+
+function ConvertFrom-HexInput([string]$Text) {
+    # Accepts "48 65 6C", "48656C" and "0x48,0x65"; returns $null for invalid input.
+    $digits = $Text -replace '(?<![0-9A-Fa-f])0[xX]', '' -replace '[\s,]', ''
+    if ($digits -notmatch '^([0-9A-Fa-f]{2})*$') { return $null }
+    $bytes = New-Object byte[] ($digits.Length / 2)
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        $bytes[$i] = [Convert]::ToByte($digits.Substring($i * 2, 2), 16)
+    }
+    , $bytes
+}
+
+function Write-RxHex([byte[]]$Bytes) {
+    Hide-Prompt
+    if (-not $script:AtLineStart) { Write-Out "`n" }
+    for ($i = 0; $i -lt $Bytes.Length; $i += 16) {
+        Write-LinePrefix "<<"
+        Write-Out ((ConvertTo-HexString $Bytes[$i..([Math]::Min($i + 16, $Bytes.Length) - 1)]) + "`n")
+    }
+    $script:AtLineStart = $true
+    Show-Prompt
+}
+
 function Write-Tx([string]$text) {
     Hide-Prompt
     if (-not $script:AtLineStart) { Write-Out "`n" }
@@ -207,9 +235,23 @@ function Submit-Input($sp) {
     $msg = $script:InputBuffer.ToString()
     [void]$script:InputBuffer.Clear()
     Hide-Prompt
-    $sp.Write($msg + $script:Terminator)
+    if ($Hex) {
+        $bytes = ConvertFrom-HexInput $msg
+        if ($null -eq $bytes) {
+            Write-Status "Invalid hex input: $msg" -Warning
+            [void]$script:InputBuffer.Append($msg)
+            Show-Prompt
+            return
+        }
+        if ($bytes.Length -eq 0) { return }
+        $sp.Write($bytes, 0, $bytes.Length)
+        $echo = ConvertTo-HexString $bytes
+    } else {
+        $sp.Write($msg + $script:Terminator)
+        $echo = $msg
+    }
     if ($msg -and ($script:History.Count -eq 0 -or $script:History[-1] -ne $msg)) { $script:History.Add($msg) }
-    Write-Tx $msg
+    Write-Tx $echo
     $script:HistoryIndex = $script:History.Count
 }
 
@@ -230,7 +272,7 @@ function Read-Keys($sp) {
             }
             if ($WriteMode -and $sp) {
                 $sp.Write([byte[]]@(3), 0, 1)
-                Write-Tx "^C"
+                if ($Hex) { Write-Tx "03" } else { Write-Tx "^C" }
             }
             continue
         }
@@ -322,8 +364,14 @@ function Connect-Port {
         try {
             while (-not $script:ExitRequested) {
                 if ($sp.BytesToRead -gt 0) {
-                    $data = $sp.ReadExisting()
-                    if ($data) { Write-Rx $data }
+                    if ($Hex) {
+                        $buffer = New-Object byte[] $sp.BytesToRead
+                        $count = $sp.Read($buffer, 0, $buffer.Length)
+                        if ($count -gt 0) { Write-RxHex $buffer[0..($count - 1)] }
+                    } else {
+                        $data = $sp.ReadExisting()
+                        if ($data) { Write-Rx $data }
+                    }
                 }
 
                 Read-Keys $sp
